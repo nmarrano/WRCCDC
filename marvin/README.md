@@ -23,6 +23,7 @@ git clone https://github.com/nmarrano/WRCCDC.git && cd WRCCDC/marvin && chmod +x
 | `postgres-lockdown.sh` | pg_hba (trust, superusers over the network), superusers, pg_execute_server_program, archive_command, preload libs, COPY…PROGRAM functions, event triggers, log_connections, `rotate`, `seen` |
 | `redis-lockdown.sh` | admin ACL user, dangerous commands removed from the apps' user, unknown ACL users off, rogue replica, dump dir/filename, modules, Redis dumps written as SSH keys / cron, `rotate` |
 | `mongodb-lockdown.sh` | users + roles, authorization on (safe restart with rollback), login-less clients, stored JS, `rotate` |
+| `php-lockdown.sh` | PHP (phpMyAdmin/Adminer, PHP sites): php2shell CVE-2026-109618/109619 check + stopgap, CNEXT CVE-2024-2961, webshells, PHP in uploads; auto-undo if the site breaks |
 | `backup.sh` | /etc + every database dump, checksums, `restore` |
 | `firewall.sh` | ufw that only closes what is clearly unneeded: SSH (22 + any sshd port), DB ports and every port listening now stay open; only temp-folder backdoor listeners + unused ports are closed. `LIMIT_DB=yes` limits the DB port to team + scorer. 5-min auto-rollback, `block IP` |
 | `watch.sh` | alert loop: DB health, drift from baseline (files, users, ports, SUID, units, **DB accounts**, firewall), processes, outside DB logins |

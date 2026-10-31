@@ -21,6 +21,7 @@ passwd                       # root first, then your own account
 | `sylvester.sh` | runs everything in order, then opens the tmux monitor |
 | `linux-lockdown.sh` | passwords, accounts, sudo (wheel), SSH keys, sshd, **SELinux**, persistence (cron, systemd, ld.so.preload, PAM, login scripts, temp-folder programs), SUID/caps, processes, ports, `rpm -Va` |
 | `stream-lockdown.sh` | finds Jellyfin / Emby / Plex / Owncast / MediaMTX / Icecast / nginx-rtmp / Apache; open setup wizard, default Owncast password, users with no password, admin users, API keys, plugins, app running as root, writable files, webshells, recently changed files |
+| `php-lockdown.sh` | PHP (phpMyAdmin/Adminer, PHP sites): php2shell CVE-2026-109618/109619 check + stopgap, CNEXT CVE-2024-2961, webshells, PHP in uploads; auto-undo if the site breaks |
 | `backup.sh` | /etc + app config/database (videos skipped) |
 | `firewall.sh` | **firewalld** that only closes what is clearly unneeded: SSH, the app ports and every port listening now stay open; only temp-folder backdoor listeners + unused ports are closed. 5-min auto-rollback, `block IP` |
 | `watch.sh` | alert loop: app service + ports + STREAM_URL, drift from baseline (files, users, ports, SUID, units, firewall, SELinux), bad processes, outbound |

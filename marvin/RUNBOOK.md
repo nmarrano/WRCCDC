@@ -64,6 +64,7 @@ Red line in **alerts** or **procs** → respond:
 ./respond.sh report 10:30       # incident report draft -> ticket at teams.wccomps.org
 ```
 Every ~hour: `./backup.sh` and `./linux-lockdown.sh --audit`.
+PHP on the box (phpMyAdmin/Adminer)? `./php-lockdown.sh` (php2shell + CNEXT + webshells).
 
 ## 6. Something is down
 1. `systemctl status mysql postgresql redis-server mongod ssh`
