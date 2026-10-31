@@ -2,10 +2,15 @@
 #
 # firewall.sh
 #
-# Host firewall (firewalld) for sylvester, built so it CAN'T take scoring down by surprise:
-#   - SSH (22/tcp) stays open - the scorer logs in over SSH.
-#   - Every port the streaming app listens on stays open (+ EXTRA_PORTS in sylvester.conf).
-#   - Everything else inbound is closed: other services/ports red team opened in the zone are removed.
+# Host firewall (firewalld) for sylvester, built so it CAN'T take scoring down by surprise.
+# It only CLOSES what is clearly not needed - it does not guess what is scored:
+#   - SSH stays open: the ssh service + 22/tcp always, plus any other port sshd listens on.
+#   - The streaming app's ports stay open (even while it is down, so it works after a restart).
+#   - EVERY other port that is listening right now stays open too, so a scored service you
+#     didn't know about keeps working. Only listeners running from a temp folder / a deleted
+#     or quarantined file (backdoors) are left closed. Add more with EXTRA_PORTS in sylvester.conf.
+#   - Ports nothing listens on are closed, so a backdoor started later can't be reached.
+#   - Ping and outbound traffic are allowed.
 #
 # Safety net: 'apply' schedules an automatic ROLLBACK in 5 minutes. Type "yes" when the
 # scoreboard is still green to keep it. If you don't - or your SSH session dies - the old
@@ -43,13 +48,24 @@ running() { [[ "$(firewall-cmd --state 2>/dev/null)" == "running" ]]; }
 zone() { firewall-cmd --get-default-zone 2>/dev/null || echo public; }
 valid_ip() { [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$ ]]; }
 
+# a listener whose program runs from a temp folder / a deleted or quarantined file = backdoor
+backdoor_listener() {
+    local exe
+    exe=$(readlink "/proc/$1/exe" 2>/dev/null)
+    [[ "$exe" == /tmp/* || "$exe" == /dev/shm/* || "$exe" == /var/tmp/* || "$exe" == *"(deleted)" || "$exe" == "$EVIDENCE"/* ]]
+}
+
 build_plan() {
-    local a p x
+    local a p x proto port addr name pid
     {
-        printf "22/tcp\tSSH (scored)\n"
+        printf "22/tcp\tSSH (scored - always open)\n"
+        listeners | awk '$4 ~ /^sshd/ {print $2 "/" $1}' | sort -u | while read -r x
+        do
+            printf "%s\tSSH (sshd listens here)\n" "$x"
+        done
         for a in $APPS
         do
-            for p in $(app_ports "$a")
+            for p in $(app_ports "$a") $(printf '%s/tcp ' $(app_field "$a" 4))
             do
                 printf "%s\t%s\n" "$p" "$a"
             done
@@ -59,14 +75,22 @@ build_plan() {
             [[ "$x" == */* ]] || x="$x/tcp"
             printf "%s\textra port from sylvester.conf\n" "$x"
         done
-    } | sort -u -t$'\t' -k1,1 > "$SYL_TMP/plan"
+        # everything else listening on the network right now stays reachable (maybe scored)
+        listeners | while read -r proto port addr name pid
+        do
+            is_local_addr "$addr" && continue
+            backdoor_listener "$pid" && continue
+            printf "%s/%s\tlistening now (%s)\n" "$port" "$proto" "$name"
+        done
+    } | awk -F'\t' '!seen[$1]++' > "$SYL_TMP/plan"
 }
 
 show_plan() {
     local proto port addr name pid
     build_plan
     section "FIREWALL PLAN (firewalld zone: $(zone))"
-    explain "Inbound: only these ports. Outbound: allowed (DNS, the domain controller, updates)."
+    explain "Inbound: these ports stay open; ports nothing listens on are closed, and so are listeners"
+    explain "running from temp folders (backdoors). Ping + outbound traffic stay allowed."
     awk -F'\t' '{printf "  open  %-12s %s\n", $1, $2}' "$SYL_TMP/plan"
     printf "\n  ${bold}Listening right now:${reset}\n"
     listeners | while read -r proto port addr name pid
@@ -76,10 +100,11 @@ show_plan() {
         then
             printf "  ${info}open   ${reset} %-12s %-16s\n" "$port/$proto" "$name"
         else
-            printf "  ${error}CLOSED ${reset} %-12s %-16s\n" "$port/$proto" "$name"
+            printf "  ${error}CLOSED ${reset} %-12s %-16s (runs from a temp folder - backdoor)\n" "$port/$proto" "$name"
         fi
     done | sort -u
-    explain "Something CLOSED that the scoring page checks? Add it to EXTRA_PORTS in $CONF first."
+    explain "A scored service that is DOWN right now isn't listening, so its port would be closed -"
+    explain "add the scored ports to EXTRA_PORTS in $CONF to be safe."
     if running
     then
         printf "\n  firewalld now: zone %s  services: %s  ports: %s\n" "$(zone)" \

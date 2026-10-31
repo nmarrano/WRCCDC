@@ -86,6 +86,7 @@ load_conf() {
     TEAM_NET="192.168.220.0/24"
     SCORING_IPS=""
     EXTRA_PORTS=""
+    LIMIT_DB="no"
     [[ -f "$CONF" ]] && . "$CONF"
     [[ -f "$SECRETS" ]] && . "$SECRETS"
 }

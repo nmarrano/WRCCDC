@@ -103,9 +103,12 @@ DB_ENGINES="$engines"
 # The team network (the other boxes). Database logins from outside it are flagged.
 TEAM_NET="$team"
 
-# Scoring engine IP(s). Empty = the database port stays open to everyone in the firewall.
-# Find them with: ./firewall.sh discover
+# Scoring engine IP(s). Find them with: ./firewall.sh discover
 SCORING_IPS="$SCORING_IPS"
+
+# "yes" = the firewall lets ONLY the team network + SCORING_IPS reach the database port.
+# Leave "no" unless you are SURE of the scorer's IP (a wrong IP = failed DB checks).
+LIMIT_DB="${LIMIT_DB:-no}"
 
 # Extra ports the scoring page checks on marvin, besides 22 and the database (e.g. "8080/tcp 161/udp")
 EXTRA_PORTS="$EXTRA_PORTS"

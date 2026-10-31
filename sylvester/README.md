@@ -22,7 +22,7 @@ passwd                       # root first, then your own account
 | `linux-lockdown.sh` | passwords, accounts, sudo (wheel), SSH keys, sshd, **SELinux**, persistence (cron, systemd, ld.so.preload, PAM, login scripts, temp-folder programs), SUID/caps, processes, ports, `rpm -Va` |
 | `stream-lockdown.sh` | finds Jellyfin / Emby / Plex / Owncast / MediaMTX / Icecast / nginx-rtmp / Apache; open setup wizard, default Owncast password, users with no password, admin users, API keys, plugins, app running as root, writable files, webshells, recently changed files |
 | `backup.sh` | /etc + app config/database (videos skipped) |
-| `firewall.sh` | **firewalld**: SSH + the app's ports stay open, everything else closed, `discover` finds the scorer, 5-min auto-rollback, `block IP` |
+| `firewall.sh` | **firewalld** that only closes what is clearly unneeded: SSH, the app ports and every port listening now stay open; only temp-folder backdoor listeners + unused ports are closed. 5-min auto-rollback, `block IP` |
 | `watch.sh` | alert loop: app service + ports + STREAM_URL, drift from baseline (files, users, ports, SUID, units, firewall, SELinux), bad processes, outbound |
 | `monitor.sh` | tmux `sylvester`: alerts, new processes, net, logins, app status/logs, users, shell |
 | `respond.sh` | `proc user ip file unit note report` - evidence first |

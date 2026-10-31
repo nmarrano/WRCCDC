@@ -24,7 +24,7 @@ git clone https://github.com/nmarrano/WRCCDC.git && cd WRCCDC/marvin && chmod +x
 | `redis-lockdown.sh` | admin ACL user, dangerous commands removed from the apps' user, unknown ACL users off, rogue replica, dump dir/filename, modules, Redis dumps written as SSH keys / cron, `rotate` |
 | `mongodb-lockdown.sh` | users + roles, authorization on (safe restart with rollback), login-less clients, stored JS, `rotate` |
 | `backup.sh` | /etc + every database dump, checksums, `restore` |
-| `firewall.sh` | ufw: SSH + DB stay open (DB to team + scorer), `discover` finds the scorer, 5-min auto-rollback, `block IP` |
+| `firewall.sh` | ufw that only closes what is clearly unneeded: SSH (22 + any sshd port), DB ports and every port listening now stay open; only temp-folder backdoor listeners + unused ports are closed. `LIMIT_DB=yes` limits the DB port to team + scorer. 5-min auto-rollback, `block IP` |
 | `watch.sh` | alert loop: DB health, drift from baseline (files, users, ports, SUID, units, **DB accounts**, firewall), processes, outside DB logins |
 | `monitor.sh` | tmux session `marvin`: alerts, new processes, net, auth, DB sessions/logs, accounts, shell |
 | `respond.sh` | `proc user dbuser ip file unit note report` - evidence first |

@@ -2,12 +2,16 @@
 #
 # firewall.sh
 #
-# Host firewall (ufw) for marvin, built so it CAN'T take scoring down by surprise:
-#   - SSH (22/tcp) stays open to everyone - the scorer logs in over SSH.
-#   - Each database port that listens on the network stays open to the team network
-#     AND the scoring engine. Until you know the scorer's IP (SCORING_IPS in
-#     marvin.conf, found with 'discover'), the DB port stays open to everyone.
-#   - Every other inbound port is blocked. Outbound is left open (DNS, AD, updates).
+# Host firewall (ufw) for marvin, built so it CAN'T take scoring down by surprise.
+# It only CLOSES what is clearly not needed - it does not guess what is scored:
+#   - SSH stays open to everyone: 22/tcp always, plus any other port sshd listens on.
+#   - Every database port stays open to everyone (even while the DB is down, so it works
+#     again after a restart). LIMIT_DB="yes" in marvin.conf + SCORING_IPS = team + scorer only.
+#   - EVERY other port that is listening right now stays open too, so a scored service you
+#     didn't know about keeps working. Only listeners running from a temp folder / a deleted
+#     or quarantined file (backdoors) are left closed.
+#   - Ports that are NOT listening now are closed: a backdoor started later can't be reached.
+#   - Ping and outbound traffic are allowed (DNS, AD, updates).
 #
 # Safety net: 'apply' schedules an automatic ROLLBACK in 5 minutes. Type "yes" when the
 # scoreboard is still green to keep the rules. If you don't - or your SSH session dies -
@@ -56,34 +60,45 @@ have ufw || { flag "ufw is not installed (apt-get install ufw)"; exit 1; }
 
 valid_ip() { [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$ || "$1" =~ ^[0-9a-fA-F:]+(/[0-9]{1,3})?$ ]]; }
 
-# db ports that listen on a non-local address (proto port)
+# every database port on this box (listening or not - a stopped DB must work again after a restart)
 db_ports() {
     local e p
     for e in $(detect_engines)
     do
         for p in $(engine_ports "$e")
         do
-            listeners | awk -v p="$p" '$1 == "tcp" && $2 == p {print $3}' | grep -qvE '^(127\.|::1$)' && echo "$p $e"
+            echo "$p $e"
         done
     done | sort -u
 }
 
+# a listener whose program runs from a temp folder / a deleted or quarantined file = backdoor
+backdoor_listener() {
+    local exe
+    exe=$(readlink "/proc/$1/exe" 2>/dev/null)
+    [[ "$exe" == /tmp/* || "$exe" == /dev/shm/* || "$exe" == /var/tmp/* || "$exe" == *"(deleted)" || "$exe" == "$EVIDENCE"/* ]]
+}
+
 # the plan, one rule per line: PORT/PROTO<TAB>FROM<TAB>WHY
 build_plan() {
-    local p e ip x
+    local p e ip x proto port addr name pid
     {
-        printf "22/tcp\tany\tSSH (scored - open to everyone)\n"
+        printf "22/tcp\tany\tSSH (scored - always open)\n"
+        listeners | awk '$4 ~ /^sshd/ {print $2 "/" $1}' | sort -u | while read -r x
+        do
+            printf "%s\tany\tSSH (sshd listens here)\n" "$x"
+        done
         db_ports | while read -r p e
         do
-            if [[ -z "$SCORING_IPS" ]]
+            if [[ "$LIMIT_DB" == "yes" && -n "$SCORING_IPS" ]]
             then
-                printf "%s/tcp\tany\t%s (scorer IP unknown - open to all; run 'discover')\n" "$p" "$e"
-            else
-                printf "%s/tcp\t%s\t%s from the team network\n" "$p" "$TEAM_NET" "$e"
+                printf "%s/tcp\t%s\t%s from the team network (LIMIT_DB=yes)\n" "$p" "$TEAM_NET" "$e"
                 for ip in $SCORING_IPS
                 do
-                    printf "%s/tcp\t%s\t%s from the scoring engine\n" "$p" "$ip" "$e"
+                    printf "%s/tcp\t%s\t%s from the scoring engine (LIMIT_DB=yes)\n" "$p" "$ip" "$e"
                 done
+            else
+                printf "%s/tcp\tany\t%s database\n" "$p" "$e"
             fi
         done
         for x in $EXTRA_PORTS
@@ -91,7 +106,14 @@ build_plan() {
             [[ "$x" == */* ]] || x="$x/tcp"
             printf "%s\tany\textra port from marvin.conf\n" "$x"
         done
-    } > "$MARVIN_TMP/plan"
+        # everything else listening on the network right now stays reachable (maybe scored)
+        listeners | while read -r proto port addr name pid
+        do
+            is_local_addr "$addr" && continue
+            backdoor_listener "$pid" && continue
+            printf "%s/%s\tany\tlistening now (%s)\n" "$port" "$proto" "$name"
+        done
+    } | awk -F'\t' '!seen[$1 FS $2]++' > "$MARVIN_TMP/plan"
 }
 
 port_allowed() {   # port_allowed PORT PROTO
@@ -102,8 +124,8 @@ show_plan() {
     local proto port addr name pid
     build_plan
     section "FIREWALL PLAN"
-    explain "Inbound: deny everything except the rules below (+ replies to marvin's own traffic)."
-    explain "Outbound: allowed (marvin needs DNS, the domain controller, updates)."
+    explain "Inbound: the ports below stay open; ports nothing listens on are closed, and so are"
+    explain "listeners running from temp folders (backdoors). Ping + outbound traffic stay allowed."
     printf "\n  ${bold}%-12s %-20s %s${reset}\n" PORT FROM WHY
     awk -F'\t' '{printf "  %-12s %-20s %s\n", $1, $2, $3}' "$MARVIN_TMP/plan"
     printf "\n  ${bold}Everything listening right now:${reset}\n"
@@ -114,11 +136,13 @@ show_plan() {
         then
             printf "  ${info}open   ${reset} %-12s %-16s on %s\n" "$port/$proto" "$name" "$addr"
         else
-            printf "  ${error}BLOCKED${reset} %-12s %-16s on %s\n" "$port/$proto" "$name" "$addr"
+            printf "  ${error}BLOCKED${reset} %-12s %-16s on %s  (runs from a temp folder - backdoor)\n" "$port/$proto" "$name" "$addr"
         fi
     done | sort -u
-    explain "Something BLOCKED that the scoring page checks? Add it to EXTRA_PORTS in $CONF first."
-    [[ -z "$SCORING_IPS" ]] && caution "SCORING_IPS is empty: the DB port stays open to everyone. Find the scorer: ./firewall.sh discover"
+    explain "A service that is DOWN right now isn't listening, so its port would be closed - add the"
+    explain "scored ports to EXTRA_PORTS in $CONF to be safe (database ports are always kept open)."
+    [[ "$LIMIT_DB" == "yes" && -n "$SCORING_IPS" ]] \
+        && caution "LIMIT_DB=yes: the DB port only answers the team network + $SCORING_IPS - a wrong scorer IP = failed DB checks"
     [[ -s "$BLOCKLIST" ]] && printf "  blocked attacker IPs: %s\n" "$(paste -sd' ' "$BLOCKLIST")"
     if have docker && docker ps -q 2>/dev/null | grep -q .
     then
